@@ -1,6 +1,5 @@
 # Sync-DRAW: Automatic GIF Generation using Deep Recurrent Attentive Architectures
 
-sync-draw.py: implementation of the [paper](https://arxiv.org/abs/1611.10314).
 
 ##Results
 ###One Digit:
