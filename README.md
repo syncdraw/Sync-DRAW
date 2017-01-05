@@ -6,7 +6,7 @@ sync-draw.py: implementation of the [paper](https://arxiv.org/abs/1611.10314).
 ###One Digit:
 | Without Alignment  | With Alignment|
 | ------------- | ------------- |
-| <img src="http://imgur.com/p3aR485"width="100%"> | <img src="http://imgur.com/5bVVwGF" width="100%"> |
+| <img src=http://i.imgur.com/jQmizoV.gifv" width="100%"> | <img src="http://imgur.com/5bVVwGF" width="100%"> |
 
 ###Two Digit:
 | Without Alignment  | With Alignment|
