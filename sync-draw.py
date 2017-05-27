@@ -1,9 +1,5 @@
-#!/usr/bin/env python
-
-""""
-one hot
-"""
-
+'''before running this code run any of the codes in dataset folder to create a .h5 file of the dataset
+Once the dataset is created, give the path to the datset to the variable dataset_file'''
 import tensorflow as tf
 from tensorflow.examples.tutorials import mnist
 import numpy as np
@@ -11,12 +7,7 @@ import os
 import h5py
 import logging
 
-logging.basicConfig(filename='sync_draw.log',level=logging.DEBUG)
-
-tf.flags.DEFINE_string("data_dir", "", "")
-tf.flags.DEFINE_boolean("read_attn", True, "enable attention for reader")
-tf.flags.DEFINE_boolean("write_attn",True, "enable attention for writer")
-FLAGS = tf.flags.FLAGS
+model_file_name = "results_twodigit/unsupervised_frame_cvae_10"
 
 ## MODEL PARAMETERS ## 
 C = 10
@@ -27,12 +18,12 @@ enc_size = 256 # number of hidden units / output size in LSTM
 dec_size = 256
 read_n = 10 # read glimpse grid width/height
 write_n = 10 # write glimpse grid width/height
-read_size = 2*read_n*read_n if FLAGS.read_attn else 2*img_size
-write_size = write_n*write_n if FLAGS.write_attn else img_size
+read_size = 2*read_n*read_n #if FLAGS.read_attn else 2*img_size
+write_size = write_n*write_n #if FLAGS.write_attn else img_size
 z_size=100 # QSampler output size
 T=10 # MNIST generation sequence length
 batch_size=100 # training minibatch size
-train_iters=10000
+train_iters=50000
 learning_rate=1e-3 # learning rate for optimizer
 eps=1e-8 # epsilon for numerical stability
 
@@ -41,7 +32,7 @@ eps=1e-8 # epsilon for numerical stability
 DO_SHARE=None # workaround for variable_scope(reuse=True)
 
 x = tf.placeholder(tf.float32,shape=(batch_size,C,img_size)) # input (batch_size * img_size)
-e=tf.random_normal((batch_size,z_size), mean=0, stddev=1) # Qsampler noise
+#e=tf.random_normal((batch_size,z_size), mean=0, stddev=1) # Qsampler noise
 lstm_enc = tf.nn.rnn_cell.LSTMCell(enc_size, state_is_tuple=True) # encoder Op
 lstm_dec = tf.nn.rnn_cell.LSTMCell(dec_size, state_is_tuple=True) # decoder Op
 
@@ -168,7 +159,7 @@ def read_attn(x,x_hat,h_dec_prev):
     x_hat=filter_gif(x_hat,Fx,Fy,gamma,read_n)
     return tf.concat(1,[x,x_hat]),gamma # concat along feature axis
 
-read = read_attn if FLAGS.read_attn else read_no_attn
+read = read_attn #if FLAGS.read_attn else read_no_attn
 
 ## ENCODE ## 
 def encode(state,input):
@@ -183,7 +174,7 @@ def encode(state,input):
 
 ## Q-SAMPLER (VARIATIONAL AUTOENCODER) ##
 
-def sampleQ(h_enc):
+def sampleQ(h_enc,e):
     """
     Samples Zt ~ normrnd(mu,sigma) via reparameterization trick for normal dist
     mu is (batch,z_size)
@@ -226,7 +217,7 @@ def write_attn(h_dec):
     return wr*tf.reshape(1.0/gamma,[-1,C,1]),gamma
 
 
-write=write_attn if FLAGS.write_attn else write_no_attn
+write=write_attn #if FLAGS.write_attn else write_no_attn
 
 ## STATE VARIABLES ## 
 
@@ -248,7 +239,8 @@ for t in range(T):
     r,frame=read(x,x_hat,h_dec_prev)
     read_frame[t] = frame
     h_enc,enc_state=encode(enc_state,tf.concat(1,[r,h_dec_prev]))
-    z,mus[t],logsigmas[t],sigmas[t]=sampleQ(h_enc)
+    e=tf.random_normal((batch_size,z_size), mean=0, stddev=1)
+    z,mus[t],logsigmas[t],sigmas[t]=sampleQ(h_enc,e)
     h_dec,dec_state=decode(dec_state,z)
     glimpse_write,frame = write(h_dec)
     write_frame[t] = frame
@@ -256,6 +248,19 @@ for t in range(T):
     cs[t]=c_prev+glimpse_write # store results
     h_dec_prev=h_dec
     DO_SHARE=True # from now on, share variables
+
+## Testing code ##
+cs_test = [0] * T
+h_dec_test = [0] * T
+dec_state_test = lstm_dec.zero_state(batch_size, tf.float32)
+
+for t in range(T):
+    e = tf.random_normal((batch_size, z_size), mean = 0, stddev = 1)
+    c_prev_test = tf.zeros((batch_size, C, img_size) if t == 0 else cs_test[t-1])
+    h_dec_test[t], dec_state_test = decoder(dec_state, e)
+    glimpse_write_test, frame_test = write(h_dec_test[t])
+    cs_test[t] = c_prev_test + glimpse_write_test
+
 
 ## LOSS FUNCTION ## 
 
@@ -306,12 +311,14 @@ train_op=optimizer.apply_gradients(grads)
 # with h5py.File('/home/ee13b1044/honours/TGIF-Release-master/data/gif_data.h5','r') as hf:
 #     inputImages = np.float32(np.array(hf.get('gif_data')).reshape(-1,C,4096))/255.
 
-with h5py.File('path/to/mnist/gif/dataset','r') as hf:
+
+dataset_file = '/path/to/dataset/'
+with h5py.File(dataset_file,'r') as hf:
     inputImages = np.float32(np.array(hf.get('mnist_gif_train')).reshape(-1,C,4096))
-    inputImages_val = np.float32(np.array(hf.get('mnist_gif_val')).reshape(-1,C,4096))
+    #inputImages_val = np.float32(np.array(hf.get('mnist_gif_val')).reshape(-1,C,4096))
 
 train_data = inputImages
-val_data = inputImages_val
+#val_data = inputImages_val
 # train_data = np.load('single_bouncing_mnist.npy')
 print "loaded"
 
@@ -326,38 +333,46 @@ sess=tf.InteractiveSession()
 
 saver = tf.train.Saver() # saves variables learned during training
 
-tf.initialize_all_variables().run()
-#saver.restore(sess, "/tmp/draw/drawmodel.ckpt") # to restore from model, uncomment this line
 
-for i in range(train_iters):
-    xtrain=next_batch(train_data)
-    xtrain = xtrain.reshape(-1,C,img_size) # xtrain is (batch_size x img_size)
-    feed_dict={x:xtrain}
-    results=sess.run(fetches,feed_dict)
-    Lxs[i],Lzs[i],rf[i],wf[i],_=results
-    if i%100==0:
-        print("iter=%d : Lx: %f Lz: %f" % (i, Lxs[i], Lzs[i]))
-        logging.debug("iter=%d : Lx: %f Lz: %f" % (i, Lxs[i], Lzs[i]))
-        feed_dict_val = {x:val_data[np.random.permutation(1000)[:100]]}
-        results_val = sess.run(fetches,feed_dict_val)
-        Lxval,Lzval,rfval,wfval,_ = results_val
-        print("Validation iter=%d : Lx: %f Lz: %f" % (i, Lxval, Lzval))
-        logging.debug("Validation iter=%d : Lx: %f Lz: %f" % (i, Lxval, Lzval))
-        # print(rf[i])
-        # print(wf[i])
+if os.path.isfile(model_file_name+".ckpt"):
+    print("Restoring saved parameters")
+    saver.restore(sess, model_file_name+".ckpt")
+#     canvases,h_dec_ts = sess.run([cs_test,h_dec_test],feed_dict={})
+#     canvases = np.array(canvases)
+else:
+    tf.initialize_all_variables().run()
+    for i in range(train_iters):
+        xtrain=next_batch(train_data) # xtrain is (batch_size x img_size)
+        # xtrain = xtrain.reshape(-1,C,img_size) # xtrain is (batch_size x img_size)
+        for j in range(C-1):
+            if j==0:
+                feed_dict={x:xtrain[:,j],x_prev:np.float32(np.zeros((batch_size,img_size)))}
+            else:
+                feed_dict={x:xtrain[:,j],x_prev:xtrain[:,j-1]}
+            results=sess.run(fetches,feed_dict)
 
-## TRAINING FINISHED ## 
+        # feed_dict={x:xtrain,y:ytrain}
+        # results=sess.run(fetches,feed_dict)
+        Lxs[i],Lzs[i],et,_=results
+        if i%10==0:
+            print("iter=%d : Lx: %f Lz: %f" % (i,Lxs[i],Lzs[i]))
+            #print np.array(et)[:,0,:]
+        if (i+1)%500==0:
+            ckpt_file=model_file_name+".ckpt"
+            print("Model saved in file: %s" % saver.save(sess,ckpt_file))
+    print("training is finished")
+    
+    ## testing phase ##
+    canvases, h_dec_ts=sess.run([cs_test, h_dec_test], feed_dict = {}) # generate some examples
+    canvases=np.array(canvases) # T x batch x img_size
+    xt = 1./(1 + np.exp(canvases))
+    out_file=model_file_name+".npy"
+    np.save(out_file,[xt,Lxs,Lzs])
+    print("Outputs saved in file: %s" % out_file)
 
-canvases=sess.run(cs,feed_dict) # generate some examples
-canvases=np.array(canvases) # T x batch x img_size
+    ckpt_file=model_file_name+".ckpt"
+    print("Model saved in file: %s" % saver.save(sess,ckpt_file))
 
-out_file=os.path.join(FLAGS.data_dir,"mnist_sync_draw.npy")
-np.save(out_file,[canvases,Lxs,Lzs,rf,wf])
-print("Outputs saved in file: %s" % out_file)
+    sess.close()
 
-ckpt_file=os.path.join(FLAGS.data_dir,"mnist_sync_draw.ckpt")
-print("Model saved in file: %s" % saver.save(sess,ckpt_file))
-
-sess.close()
-
-print('Done drawing! Have a nice day! :)')
+    print('Done drawing! Have a nice day! :)')
